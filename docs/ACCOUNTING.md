@@ -18,30 +18,22 @@ The hook takes or mints `F` and returns positive `F` from `afterSwap`. That posi
 
 ## Exact input
 
-The specified currency is input, which cannot be modified by the `afterSwap` return value. For requested gross budget `A`:
+The specified currency is input, which cannot be modified by the `afterSwap` return value. For the specified input budget `A`:
 
 ```text
-R = floor(A * r / B)        // maximum reservation
-AMM input budget = A - R
-F = min(R, floor(x * r / (B - r)))
-U = R - F                  // unused reservation
-gross input actually spent G = x + F
-F = floor(G * r / B)
+F = floor(A * r / B)        // the tithe, fixed before the AMM runs
+AMM input budget = A - F
+x <= A - F                  // what the AMM actually consumed
+swapper's debt = x + F
 ```
 
-`beforeSwap` returns `(specifiedDelta = +R, unspecifiedDelta = 0)` and the real AMM swaps `A - R`. The reservation is strictly less than `A`, so this is not a NoOp replacement of the swap. The hook never supplies its own exchange rate or fabricates an output delta.
+`beforeSwap` returns `(specifiedDelta = +F, unspecifiedDelta = 0)` and the real AMM swaps `A - F`. `F` is strictly less than `A`, so this is not a NoOp replacement of the swap. The hook never supplies its own exchange rate or fabricates an output delta.
 
-In `afterSwap`, the hook:
+In `afterSwap`, the hook recomputes the same `F` from `params.amountSpecified`, reverts with `SwapNotFilled` if `x == 0`, takes or mints `F` for the seat, and returns a zero unspecified delta. Its deltas net to `+F - F = 0`. The manager reports a swapper debt of `x + F`, which is exactly what a `SETTLE_ALL` router pays; the hook mints no claims to the caller, so a router that never touches ERC-6909 ends the swap with none.
 
-1. Takes/mints its actual fee `F`.
-2. Mints `U` ERC-6909 input-currency refund claims **to `sender`**, the calling router.
-3. Returns zero unspecified delta, leaving the output untouched.
+On a full fill, `x = A - F` and the tithe is `r / B` of the gross input `A`. On a partial fill (the price limit or the end of the liquidity is reached first), the swapper pays `x + F` with `F` still computed on `A`: the tithe is a percentage of the budget the swapper specified, not of the portion the AMM used. This is the documented trade-off: the specified-currency delta has no refund channel that generic routers honor, so the only way to keep every router's accounting exact is to never over-reserve and refund. Rate/rounding fuzz tests cover the entire supported bps range; `test/TitheGenericRouter.t.sol` checks full and partial fills through a `SETTLE_ALL`/`TAKE_ALL` router.
 
-The hook's deltas net to `+R - F - U = 0`. The manager returns a router input debit of `x + R`. The router burns its newly received claims `U`, which gives it a manager credit of `U`, and pays `x + R - U = x + F`. TitheRouter returns the rest of its prefunded input to the caller.
-
-At a full fill, `x = A - R`, `F = R`, and `U = 0`. At a zero-input fill, `F = 0` and the entire reservation is refunded. Price-bound refunds use the manager's actual swap deltas, not the requested input. Rate/rounding fuzz tests cover the entire supported bps range.
-
-For integrations, record the router's ERC-6909 balance for the input currency immediately before `manager.swap`; burn only the increase afterwards. Do not spend old donated claims or other users' balances. Approvals/claim operators on the router are unnecessary because it burns its own claims. Do not assume the raw `swap` return delta is the final debt when refund claims exist.
+For integrations, nothing beyond the ordinary v4 sequence is required: swap, settle the input currency's reported delta, take the output currency's reported delta. A multi-hop route through a Tithe pool is tithed on the input amount of its own hop.
 
 ## Fee backing
 

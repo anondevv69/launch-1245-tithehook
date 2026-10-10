@@ -13,8 +13,9 @@ import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {TitheHook} from "./TitheHook.sol";
 
-/// @notice Single-hop router that consumes Tithe's partial-fill refund claims atomically.
+/// @notice Single-hop reference router for Tithe pools: pays exactly the manager's reported debt.
 /// @dev Pulls funds only from msg.sender, before unlocking; no approvals or arbitrary payer in callbacks.
+///      Any router that settles its full currency delta (SETTLE_ALL) integrates the same way.
 contract TitheRouter is IUnlockCallback, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -91,15 +92,12 @@ contract TitheRouter is IUnlockCallback, ReentrancyGuard {
         SwapRequest memory request = abi.decode(data, (SwapRequest));
         Currency inputCurrency = request.params.zeroForOne ? request.key.currency0 : request.key.currency1;
         Currency outputCurrency = request.params.zeroForOne ? request.key.currency1 : request.key.currency0;
-        uint256 beforeClaims = poolManager.balanceOf(address(this), inputCurrency.toId());
         BalanceDelta delta = poolManager.swap(request.key, request.params, "");
-        uint256 refund = poolManager.balanceOf(address(this), inputCurrency.toId()) - beforeClaims;
-        if (refund != 0) poolManager.burn(address(this), inputCurrency.toId(), refund);
 
         int128 inputDelta = request.params.zeroForOne ? delta.amount0() : delta.amount1();
         int128 outputDelta = request.params.zeroForOne ? delta.amount1() : delta.amount0();
         if (inputDelta > 0 || outputDelta < 0) revert InvalidRequest();
-        uint256 input = uint256(-int256(inputDelta)) - refund;
+        uint256 input = uint256(-int256(inputDelta));
         if (input > request.maxInput) revert Slippage();
         // settle native after sync too: another hook may have left an ERC-20 currency synced.
         poolManager.sync(inputCurrency);

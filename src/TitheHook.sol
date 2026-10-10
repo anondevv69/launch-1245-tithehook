@@ -17,7 +17,7 @@ import {BeforeSwapDelta, toBeforeSwapDelta} from "v4-core/src/types/BeforeSwapDe
 
 /// @notice Pay an identity seat, not a wallet. No administration or upgrade paths.
 /// @dev Implements only the callbacks advertised by its address. See docs/ACCOUNTING.md
-///      for exact-input reservations, partial-fill refunds and pending ERC-6909 backing.
+///      for exact-input reservations, exact-output fees and pending ERC-6909 backing.
 contract TitheHook is IUnlockCallback, ReentrancyGuard {
     using TransientStateLibrary for IPoolManager;
 
@@ -51,6 +51,7 @@ contract TitheHook is IUnlockCallback, ReentrancyGuard {
     error InvalidHookData();
     error InvalidSwapAmount();
     error InvalidInputDelta();
+    error SwapNotFilled();
     error NothingToClaim();
     error InvalidSeatOwner();
     error UnexpectedUnlock();
@@ -65,7 +66,6 @@ contract TitheHook is IUnlockCallback, ReentrancyGuard {
         uint256 credited,
         bool deferred
     );
-    event InputRefund(address indexed router, address indexed token, uint256 amount);
     event TitheRedeemed(uint256 indexed seatId, address indexed token, uint256 nominal, uint256 received);
     event TitheClaimed(uint256 indexed seatId, address indexed token, address indexed recipient, uint256 amount);
 
@@ -121,8 +121,10 @@ contract TitheHook is IUnlockCallback, ReentrancyGuard {
         return IHooks.beforeInitialize.selector;
     }
 
-    /// @dev Exact input: reserve the maximum tithe inside the caller's input budget. This is
-    ///      strictly less than the budget; the real AMM still executes the remaining swap.
+    /// @dev Exact input: take the tithe out of the specified input budget up front. It is strictly
+    ///      less than the budget; the real AMM still executes the remaining swap. The specified
+    ///      currency's delta cannot be adjusted again in afterSwap, so this amount is final whether
+    ///      or not the AMM consumes the whole remainder; it is never partly refunded as claims.
     function beforeSwap(address, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         external
         onlyPoolManager
@@ -131,36 +133,35 @@ contract TitheHook is IUnlockCallback, ReentrancyGuard {
     {
         PoolConfig memory config = _config(key);
         _validateAmount(params.amountSpecified);
-        uint256 reserve = params.amountSpecified < 0 ? uint256(-params.amountSpecified) * config.titheBps / BPS : 0;
+        uint256 reserve = _exactInputTithe(params, config.titheBps);
         return (IHooks.beforeSwap.selector, toBeforeSwapDelta(int128(int256(reserve)), 0), 0);
     }
 
-    /// @dev Charge the input currency only. Exact-output input is the unspecified currency;
-    ///      exact-input uses the beforeSwap reservation and returns excess to the router as claims.
-    function afterSwap(
-        address sender,
-        PoolKey calldata key,
-        SwapParams calldata params,
-        BalanceDelta delta,
-        bytes calldata
-    ) external onlyPoolManager nonReentrant returns (bytes4, int128) {
+    /// @dev Charge the input currency only. Exact output: the input is the unspecified currency, so
+    ///      the fee is added here on the input actually spent. Exact input: collect exactly the
+    ///      beforeSwap reservation, so the hook's deltas net to zero with no claims minted to anyone
+    ///      but itself and any SETTLE_ALL-style router pays precisely its reported debt.
+    function afterSwap(address, PoolKey calldata key, SwapParams calldata params, BalanceDelta delta, bytes calldata)
+        external
+        onlyPoolManager
+        nonReentrant
+        returns (bytes4, int128)
+    {
         PoolConfig memory config = _config(key);
         _validateAmount(params.amountSpecified);
         int128 inputDelta = params.zeroForOne ? delta.amount0() : delta.amount1();
         if (inputDelta > 0) revert InvalidInputDelta();
         uint256 input = uint256(-int256(inputDelta));
-        uint256 fee = input * config.titheBps / (BPS - config.titheBps);
         Currency currency = params.zeroForOne ? key.currency0 : key.currency1;
 
         bool exactInput = params.amountSpecified < 0;
+        uint256 fee;
         if (exactInput) {
-            uint256 reserve = uint256(-params.amountSpecified) * config.titheBps / BPS;
-            if (fee > reserve) fee = reserve;
-            uint256 refund = reserve - fee;
-            if (refund != 0) {
-                poolManager.mint(sender, currency.toId(), refund);
-                emit InputRefund(sender, Currency.unwrap(currency), refund);
-            }
+            // A fill that consumed nothing (no liquidity to the price limit) must not be tithed.
+            if (input == 0) revert SwapNotFilled();
+            fee = _exactInputTithe(params, config.titheBps);
+        } else {
+            fee = input * config.titheBps / (BPS - config.titheBps);
         }
         // The manager also casts the final router debt to int128. Fail before a narrowing cast.
         uint256 maxDelta = uint256(uint128(type(int128).max));
@@ -209,6 +210,11 @@ contract TitheHook is IUnlockCallback, ReentrancyGuard {
 
     function _validateBps(uint24 bps) private pure {
         if (bps == 0 || bps >= BPS) revert InvalidTitheBps();
+    }
+
+    /// @dev titheBps of the specified exact-input budget; zero for exact output.
+    function _exactInputTithe(SwapParams calldata params, uint24 bps) private pure returns (uint256) {
+        return params.amountSpecified < 0 ? uint256(-params.amountSpecified) * bps / BPS : 0;
     }
 
     function _validateAmount(int256 amount) private pure {

@@ -158,7 +158,7 @@ contract TitheAdversarialTest is TitheFixture {
         vm.prank(trader);
         (uint256 paid,) = router.swap(boundedSale);
         assertLt(paid, 100 ether);
-        assertEq(hook.titheOf(2, Currency.unwrap(a)) - beforeCredit, paid * 75 / 10000);
+        assertEq(hook.titheOf(2, Currency.unwrap(a)) - beforeCredit, uint256(100 ether) * 75 / 10000);
         _assertAccounting(2, a);
         _assertAccounting(2, b);
     }

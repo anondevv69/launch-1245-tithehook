@@ -27,8 +27,8 @@ Regenerate with `python3 tools/export_abis.py`; verify agreement with the build 
 
 Use `address(0)` only to identify native ETH in balance/claim methods. Raw amounts are minor units. `claim`'s amount is the hook's transfer amount; a transfer-tax token may deliver less to its owner.
 
-`PoolConfigured` provides seat/rate discovery. `TitheAccrued` distinguishes `charged` from `credited` and marks deferred backing. `InputRefund` identifies router claim refunds, which are not seat revenue. `TitheRedeemed` reports nominal claims burned and actual currency received. `TitheClaimed` reports the resolved beneficiary and amount debited.
+`PoolConfigured` provides seat/rate discovery. `TitheAccrued` distinguishes `charged` from `credited` and marks deferred backing. `TitheRedeemed` reports nominal claims burned and actual currency received. `TitheClaimed` reports the resolved beneficiary and amount debited.
 
-For `TitheRouter.swap`, use the tuple shape in the generated ABI. A request comprises `key`, `params`, `maxInput`, `minOutput`, and `deadline`; v4 `params` contains `zeroForOne`, signed `amountSpecified`, and `sqrtPriceLimitX96`. The return is `(input, output)` after refund accounting and observed output receipt. Both assets are sent/refunded to the transaction caller. See the root README for supported asset and slippage semantics.
+For `TitheRouter.swap`, use the tuple shape in the generated ABI. A request comprises `key`, `params`, `maxInput`, `minOutput`, and `deadline`; v4 `params` contains `zeroForOne`, signed `amountSpecified`, and `sqrtPriceLimitX96`. The return is `(input, output)`: the input the manager charged (AMM input plus tithe) and the observed output receipt. Both assets are sent/refunded to the transaction caller. See the root README for supported asset and slippage semantics.
 
 Hook callbacks and `unlockCallback` are manager-only protocol methods, not UI actions. Decode revert errors for user feedback; do not bypass failed simulation by changing the beneficiary, suppressing slippage or swapping the seat dependency.

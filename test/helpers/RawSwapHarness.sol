@@ -45,11 +45,8 @@ contract RawSwapHarness is IUnlockCallback {
         uint256 totalInput;
         uint256 totalOutput;
         for (uint256 i; i < count; ++i) {
-            uint256 oldClaims = manager.balanceOf(address(this), inputCurrency.toId());
             BalanceDelta delta = manager.swap(key, params, hookData);
-            uint256 refund = manager.balanceOf(address(this), inputCurrency.toId()) - oldClaims;
-            if (refund != 0) manager.burn(address(this), inputCurrency.toId(), refund);
-            uint256 input = uint256(-int256(params.zeroForOne ? delta.amount0() : delta.amount1())) - refund;
+            uint256 input = uint256(-int256(params.zeroForOne ? delta.amount0() : delta.amount1()));
             uint256 output = uint256(int256(params.zeroForOne ? delta.amount1() : delta.amount0()));
             manager.sync(inputCurrency);
             if (inputCurrency.isAddressZero()) {

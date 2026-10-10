@@ -10,7 +10,7 @@ This repository delivers the contract implementation, local tests, ABI exports a
 | --- | --- |
 | `TitheToken` | `Tithe Demo` / `TDEMO`, 18 decimals, exactly 1,000,000,000 tokens minted once to its deployer. No constructor arguments. |
 | `TitheHook` | Immutable seat binding and rate per pool; input-currency accrual; permissionless redemption and live-owner claims. |
-| `TitheRouter` | Single-hop swaps with maximum input, minimum output, deadline, and automatic partial-fill fee refunds. |
+| `TitheRouter` | Reference single-hop router with maximum input, minimum output and deadline. Optional: any router that settles its full currency delta works identically. |
 
 There is no owner, administrator, pause, upgrade, mint-after-deployment or asset rescue function in these contracts. Seat NFT ownership controls only who receives that seat's accumulated tithe. None of the launch supply is allocated to the hook or router.
 
@@ -42,13 +42,18 @@ Uniswap v4's `initialize(PoolKey,uint160)` and initialization callbacks have **n
 
 `poolConfig(poolId)` returns `(seatId, titheBps, initialized)`. Pool IDs use v4's `keccak256(abi.encode(PoolKey))`. Rates must be 1–9,999 bps; seat ID zero is a valid ERC-721 ID if the chosen NFT supports it. No pool can be configured twice, and swap `hookData` cannot alter a binding. Different pools can pay the same seat.
 
-Pool creation is permissionless and first initialization wins. The launch service must deploy the hook and initialize the demo pool atomically, as the launch factory is designed to do. For additional pools, check the resulting configuration before adding liquidity. Minting/existence of the seat is checked by the NFT on claim, not at initialization: a nonexistent or burned seat accrues but cannot be paid until a valid owner exists.
+Pool creation is permissionless and first initialization wins, as the approved workflow asks: the creator chooses the seat and rate in hookData, and need not own the seat (the demo pool itself pays seat #1 whoever holds it). The consequence is that any pool key other than the launch pool can be bound first by whoever initializes it, at a rate they choose. The launch pool is not exposed: the factory deploys the hook and initializes ETH/TDEMO at fee 12500, spacing 60 in one transaction, and `beforeInitialize` makes an earlier initialization at the predicted address impossible. For any additional pool, read `poolConfig(poolId)` and the pool's price before adding liquidity or routing to it; a binding you did not intend means you should use a different fee tier or tick spacing. Minting/existence of the seat is checked by the NFT on claim, not at initialization: a nonexistent or burned seat accrues but cannot be paid until a valid owner exists.
 
 ## Fee and claim behavior
 
 For the demo ETH/TDEMO pool, an ETH-input buy accrues **ETH**, and a TDEMO-input sell accrues **TDEMO**. This follows the approved workflow's explicit input-token accounting; there is no fee conversion or ETH-only sell tax. The launch's separate **12,500-unit (1.25%) LP fee** remains enabled and is never overridden by the hook.
 
-The tithe is rounded down from the **gross input actually spent, including tithe**. For example, a fully filled exact-input buy spending 1 ETH at 25 bps accrues 0.0025 ETH, leaving 0.9975 ETH for the AMM including its LP fee. A price-limited fill pays tithe only on its spent portion. Exact-output swaps add enough input tithe to preserve the same gross-input percentage. Detailed formulas and the v4 deltas are in [docs/ACCOUNTING.md](docs/ACCOUNTING.md).
+The tithe is rounded down from the **input amount**, including the tithe itself:
+
+- **Exact input** (negative `amountSpecified`): the tithe is `titheBps` of the specified input budget and is fixed in `beforeSwap`. A 1 ETH buy at 25 bps accrues 0.0025 ETH and hands 0.9975 ETH to the AMM, which pays its LP fee from that. If the AMM stops early at the swap's price limit or at the end of its liquidity, the unused remainder of the budget is returned to the swapper as usual, but the tithe on the whole budget still stands. Size exact-input swaps to what the pool can fill, as a quoted router does; the Universal Router's default price limit fills until liquidity runs out. A swap that consumes no input at all reverts with `SwapNotFilled` instead of charging.
+- **Exact output** (positive `amountSpecified`): the tithe is added to the input actually spent so that it is the same percentage of the gross input. A partial exact-output fill at a price bound is tithed on its actual input only.
+
+Detailed formulas and the v4 deltas are in [docs/ACCOUNTING.md](docs/ACCOUNTING.md). An earlier revision refunded the unspent part of an exact-input reservation as ERC-6909 claims to the calling router; the independent review showed canonical routers never redeem such claims, so that refund channel was removed in favor of the fixed budget rule above.
 
 Fees are taken into the hook during `afterSwap` when the manager has enough of the input asset. ERC-20 credits use the actual increase in the hook's balance. If the manager has insufficient cash, the hook instead holds an ERC-6909 claim for that currency. This allows a first buy on a fresh token-only pool to succeed before the router settles its ETH input.
 
@@ -60,9 +65,9 @@ Fees are taken into the hook during `afterSwap` when the manager has enough of t
 
 ## Router integration
 
-Use `TitheRouter` or an integration that implements the refund protocol in [docs/ACCOUNTING.md](docs/ACCOUNTING.md). `afterSwap` may only return a delta in the unspecified currency. Input-currency fees on exact-input swaps therefore need `beforeSwapReturnDelta` as well. Unused fee reservations on partial fills become ERC-6909 claims owned by the calling router.
+Any v4 integrator that pays the manager's reported input debt and takes its reported output (the Universal Router's `SWAP_EXACT_IN`/`SWAP_EXACT_OUT` followed by `SETTLE_ALL` and `TAKE_ALL`, or v4-periphery's `V4Router`) pays exactly `AMM input + tithe` on every swap and ends holding no ERC-6909 claims. `afterSwap` may only return a delta in the unspecified currency, so the exact-input tithe is applied through `beforeSwapReturnDelta` and never adjusted afterwards; the hook mints claims only to itself, never to the caller. Tests in `test/TitheGenericRouter.t.sol` run such a router on full fills, price-bound partial fills, exact output and a fresh token-only manager and check that the router's claim balance stays zero.
 
-**A generic router that ignores those claims can strand its users' refunds.** TitheRouter burns the claims inside the same unlock and reduces its input payment accordingly. Full exact-input fills and exact-output swaps do not create reservation refunds. Routers are not allowlisted; integration correctness is the caller's responsibility.
+`TitheRouter` is a small reference router with the same settlement sequence plus input cap, minimum output and deadline checks. It is optional; routers are not allowlisted.
 
 `swap(SwapRequest)` takes the pool key, v4 swap parameters, `maxInput`, `minOutput` (nonzero) and deadline. Negative `amountSpecified` is an input budget including tithe; positive means exact output. ETH input requires `msg.value == maxInput`; ERC-20 input is pulled only from `msg.sender` before the unlock. Output and unused input go to that same caller. The router rejects partially filled exact-output requests; the hook itself supports raw v4 partial exact-output settlement. Bounds must be set from a current quote, with the input tithe included. No quotation or market-price oracle is provided.
 
@@ -79,11 +84,11 @@ totalTithe = liquid + pending credits
 all accrued tithe = all claimed tithe + totalTithe
 ```
 
-Unsolicited ERC-20 transfers, donated manager claims and forced ETH cannot be prevented. They create **unassigned surplus**, so the universally valid backing relationship is `assets >= credits`, not unconditional raw-balance equality. No caller can appropriate that surplus through a claim. The equality invariant is fuzzed for protocol-managed flows, and surplus isolation is tested separately. Credits do not include the router's refund claims.
+Unsolicited ERC-20 transfers, donated manager claims and forced ETH cannot be prevented. They create **unassigned surplus**, so the universally valid backing relationship is `assets >= credits`, not unconditional raw-balance equality. No caller can appropriate that surplus through a claim. The equality invariant is fuzzed for protocol-managed flows, and surplus isolation is tested separately. No swap leaves claims on any router.
 
 ## After launch
 
-There are **no owner-settable settings**. The service must verify the canonical NFT and selected seat on mainnet, deploy using the parameters in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), seed the demo pool, perform a bounded demo swap, and verify deployed source. It must publish the actual contract addresses, pool ID, receipt and ABI links for the frontend. Policy identifiers, publication proofs and signed artifact linkage are service-owned.
+There are **no owner-settable settings**. The service must verify the canonical NFT and selected seat on mainnet (the seat token must exist, and `ownerOf` must return an address that can receive ETH, otherwise the demo pool's tithe accrues but no claim can pay it and nothing in the hook can redirect it), deploy using the parameters in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), seed the demo pool, perform a bounded demo swap, and verify deployed source. It must publish the actual contract addresses, pool ID, receipt and ABI links for the frontend. Policy identifiers, publication proofs and signed artifact linkage are service-owned.
 
 The frontend should use the ABI exports in [docs/abi](docs/abi), enumerate pools/seats using `PoolConfigured` events, and read `titheOf`, `tithe`, `pendingTithe`, and `IMD_SEAT.ownerOf`. Show pending backing separately for clarity. The claim button calls `claim(seatId, token)` and should explain that payment always goes to the seat's current owner. Do not request ERC-20 approvals to claim. Re-read ownership and balances after confirmation and NFT transfers. Display each token with its own decimals.
 

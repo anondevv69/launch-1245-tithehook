@@ -15,7 +15,7 @@ For this launch:
 - Chain: **Ethereum mainnet, chain ID 1**.
 - `manager`: supplied by the chain's launch service. The hook manifest argument is **`$poolManager`**. The source and documentation intentionally do not fix a PoolManager address.
 - `seat`: **`0x0000ec93127baa929e58e97dd0095a2bfb38ec1d`**, the canonical identity.md ERC-721 address provided by the approved workflow. It is an immutable constructor value. Services must check its code and the selected seat on mainnet before deploying; no upstream address table substitutes for this value.
-- `seatId`: payer-confirmed seat if supplied before deployment; otherwise **1**, the approved fallback.
+- `seatId`: payer-confirmed seat if supplied before deployment; otherwise **1**, the approved fallback. Before deploying, confirm on mainnet that `ownerOf(seatId)` on the seat contract succeeds and returns an address that accepts plain ETH transfers. The hook cannot check this, swaps accrue regardless, and there is no path to redirect a credit whose seat is burned, unminted or owned by a contract that rejects ETH.
 - `titheBps_`: **25**, adopting the workflow's suggested 0.25%.
 - Router `hook_`: the actual deployed TitheHook address. Deploy the adjunct router after the hook; record its deployment separately if the hook launch service's atomic factory operation deploys only the token and hook.
 
@@ -51,7 +51,7 @@ After accepted source, the independent manifest and security review, the service
 1. Rehearse deployment, pool initialization and liquidity provisioning against mainnet state, with the canonical seat dependency and actual factory.
 2. Deploy/initialize and seed according to the launch policy, preserving the reviewed constructor values.
 3. Deploy the optional TitheRouter if needed for the live swap/integration, and verify all deployed contracts on an explorer.
-4. Execute a modest quoted swap with nonzero output bound and input cap; confirm `TitheAccrued`, `PoolConfigured` and the seat's `titheOf`. A token-only seed can leave the first ETH fee as a pending claim; `redeemTithe` makes it liquid after input settlement.
+4. Execute a modest quoted swap with nonzero output bound and input cap; confirm `TitheAccrued`, `PoolConfigured` and the seat's `titheOf`. Any router that settles its reported delta (Universal Router, V4Router, TitheRouter) works. Quote exact-input swaps against the pool's liquidity: an exact-input tithe is charged on the specified budget even if the AMM fills only part of it. A token-only seed can leave the first ETH fee as a pending claim; `redeemTithe` makes it liquid after input settlement.
 5. Publish actual addresses, pool ID, opening parameters, receipts and source/ABI links. Then build the one-page `tithe` site using those deployed values.
 
 Independent review, signed artifacts, admission policy records, source publication and IPFS hosting are service/workflow outcomes, not constructor parameters or prerequisites of the source assignment. This document is a handoff, not evidence those outcomes have occurred.

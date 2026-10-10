@@ -60,7 +60,7 @@
     "name": "afterSwap",
     "inputs": [
       {
-        "name": "sender",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
@@ -675,31 +675,6 @@
   },
   {
     "type": "event",
-    "name": "InputRefund",
-    "inputs": [
-      {
-        "name": "router",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "token",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "PoolConfigured",
     "inputs": [
       {
@@ -886,6 +861,11 @@
   {
     "type": "error",
     "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SwapNotFilled",
     "inputs": []
   },
   {

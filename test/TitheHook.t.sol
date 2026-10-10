@@ -114,7 +114,7 @@ contract TitheHookTest is TitheFixture {
         assertEq(token.balanceOf(address(router)), 0);
     }
 
-    function testFuzz_partialFillRefundsUnspentTithe(uint96 amountSeed, bool buy) public {
+    function testFuzz_partialFillChargesTitheOnSpecifiedBudget(uint96 amountSeed, bool buy) public {
         _seed();
         uint256 amount = bound(amountSeed, 100 ether, 1000 ether);
         TitheRouter.SwapRequest memory request = _request(buy, -int256(amount));
@@ -123,7 +123,10 @@ contract TitheHookTest is TitheFixture {
         (uint256 input, uint256 output) = router.swap{value: buy ? amount : 0}(request);
         assertLt(input, amount);
         assertGt(output, 0);
-        assertEq(hook.titheOf(1, buy ? address(0) : address(token)), input * 25 / 10000);
+        // Exact input: the tithe is fixed on the specified budget, so nothing is left to refund as claims.
+        uint256 fee = amount * 25 / 10000;
+        assertEq(hook.titheOf(1, buy ? address(0) : address(token)), fee);
+        assertGt(input, fee);
         _assertAccounting(1, key.currency0);
         _assertAccounting(1, key.currency1);
         assertEq(address(router).balance, 0);

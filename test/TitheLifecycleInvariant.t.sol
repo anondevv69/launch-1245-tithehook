@@ -95,13 +95,17 @@ contract TitheLifecycleHandler is Test {
         assertEq(output, outputAsset.balanceOf(address(this)) - beforeOutput, "output was not delivered");
         assertGt(output, 0);
         assertLe(input, request.maxInput);
+        // Exact input: the tithe is the pool's rate on the specified budget, whether or not the AMM
+        // consumed all of the rest. Exact output: it is the rate on the gross input actually spent.
+        uint256 fee = (exactInput ? amount : spent) * rates[index] / 10_000;
         if (exactInput) {
             assertLe(input, amount);
+            assertGt(input, fee, "the swapper paid only the tithe: the AMM consumed nothing");
             if (input < amount) partialFills++;
         } else {
             assertEq(output, amount);
         }
-        earned[seats[index]][Currency.unwrap(inputAsset)] += spent * rates[index] / 10_000;
+        earned[seats[index]][Currency.unwrap(inputAsset)] += fee;
         swaps++;
     }
 

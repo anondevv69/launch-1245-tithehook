@@ -1,0 +1,32 @@
+{
+  "kind": "univ4_hook",
+  "hook": {
+    "contract": "TitheHook",
+    "constructorArgs": [
+      "$poolManager",
+      "0x0000ec93127baa929e58e97dd0095a2bfb38ec1d",
+      "1",
+      "25"
+    ],
+    "permissions": [
+      "beforeInitialize",
+      "beforeSwap",
+      "afterSwap",
+      "beforeSwapReturnDelta",
+      "afterSwapReturnDelta"
+    ]
+  },
+  "token": {
+    "contract": "TitheToken",
+    "name": "Tithe Demo",
+    "symbol": "TDEMO",
+    "decimals": 18
+  },
+  "pool": {
+    "pairedCurrency": "0x0000000000000000000000000000000000000000",
+    "fee": 12500,
+    "tickSpacing": 60,
+    "initialPrice": "79228162514264337593543950336"
+  },
+  "notes": "TitheHook accrues a fixed share of each swap's gross input actually spent to an identity.md seat. Constructor arguments are the chain's PoolManager, the workflow-supplied canonical seat NFT, default seatId 1 (the approved fallback because no payer-confirmed seat was supplied), and default titheBps 25 (0.25%). TitheToken has no constructor arguments. Ordinary PoolManager.initialize invokes beforeInitialize and permanently binds these defaults to the pool. Custom pools may instead use initializePool with abi.encode(uint256 seatId, uint24 titheBps); configuration cannot change after initialization. Initialization is permissionless; the launch factory must deploy and initialize the demo pool atomically. Enabled callbacks accept only the PoolManager; the required hook address permission mask is 0x20cc. There are no owner, admin or upgrade functions. The native ETH/TDEMO pool retains its separate 1.25% LP fee. As required by the workflow's input-token accounting, ETH-input swaps accrue ETH and TDEMO-input swaps accrue TDEMO. afterSwap takes fees into the hook and credits actual receipts when the manager has sufficient funds; otherwise it mints ERC-6909 backing claims and records pending credit. titheOf and totalTithe include liquid and pending credits. Anyone may call redeemTithe or claim; claim redeems pending backing and pays the full credit to the seat NFT's ownerOf(seatId) resolved at claim time. A nonexistent seat or failed payout reverts the claim and preserves credit. Exact-input swaps reserve tithe in beforeSwap; unused reservations on partial fills become ERC-6909 claims for the calling router. Use the implemented TitheRouter or an integration that redeems those refunds; a generic router may strand them. TitheRouter is an adjunct contract requiring separate deployment. The manifest initialPrice is the prescribed reference value; the deployment service derives the actual opening price from launch policy and the deployed token address. Mainnet deployment, canonical seat verification, source publication and signed artifact linkage remain subsequent service work."
+}

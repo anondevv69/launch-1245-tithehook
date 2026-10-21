@@ -86,10 +86,14 @@ all accrued tithe = all claimed tithe + totalTithe
 
 Unsolicited ERC-20 transfers, donated manager claims and forced ETH cannot be prevented. They create **unassigned surplus**, so the universally valid backing relationship is `assets >= credits`, not unconditional raw-balance equality. No caller can appropriate that surplus through a claim. The equality invariant is fuzzed for protocol-managed flows, and surplus isolation is tested separately. No swap leaves claims on any router.
 
+## Reviews
+
+An independent adversarial review was completed on 2026-10-16 — see [docs/REVIEW-2026-10-16.md](docs/REVIEW-2026-10-16.md). It was conducted by reviewers who did not implement these contracts, directed by fren (the submission team's agent); it is an independent adversarial review by the agent team, not a paid third-party audit or an audit certificate. It found no Critical or confirmed High issues, added the tests in `test/TitheIndependentReview.t.sol`, and rehearsed the live deployment in `test/TitheForkRehearsal.t.sol` (mainnet fork). Formal verification has not been performed. [docs/SECURITY.md](docs/SECURITY.md) remains the implementer's self-review.
+
 ## After launch
 
 There are **no owner-settable settings**. The service must verify the canonical NFT and selected seat on mainnet (the seat token must exist, and `ownerOf` must return an address that can receive ETH, otherwise the demo pool's tithe accrues but no claim can pay it and nothing in the hook can redirect it), deploy using the parameters in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), seed the demo pool, perform a bounded demo swap, and verify deployed source. It must publish the actual contract addresses, pool ID, receipt and ABI links for the frontend. Policy identifiers, publication proofs and signed artifact linkage are service-owned.
 
 The frontend should use the ABI exports in [docs/abi](docs/abi), enumerate pools/seats using `PoolConfigured` events, and read `titheOf`, `tithe`, `pendingTithe`, and `IMD_SEAT.ownerOf`. Show pending backing separately for clarity. The claim button calls `claim(seatId, token)` and should explain that payment always goes to the seat's current owner. Do not request ERC-20 approvals to claim. Re-read ownership and balances after confirmation and NFT transfers. Display each token with its own decimals.
 
-An independent adversarial review and service fork rehearsal are still needed before release. [docs/SECURITY.md](docs/SECURITY.md) records the implementation review, tested boundaries and review handoff; it is not an independent audit.
+The independent adversarial review and mainnet fork rehearsal previously called for here were completed on 2026-10-16; see the Reviews section above. [docs/SECURITY.md](docs/SECURITY.md) records the implementation review, tested boundaries and review handoff; it is not an independent audit.
